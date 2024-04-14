@@ -62,6 +62,9 @@ class AudioPlayer: NSObject {
         self.initialPlaybackRate = playbackRate
         self.audioPlayer = AVQueuePlayer()
         self.audioPlayer.automaticallyWaitsToMinimizeStalling = true
+        if #available(iOS 16.0, *) {
+            self.audioPlayer.defaultRate = playbackRate
+        }
         self.sessionId = sessionId
         self.status = .uninitialized
         self.rate = 0.0
@@ -332,7 +335,9 @@ class AudioPlayer: NSObject {
         self.markAudioSessionAs(active: true)
         DispatchQueue.runOnMainQueue {
             self.audioPlayer.play()
-            self.audioPlayer.rate = self.tmpRate
+            if #unavailable(iOS 16.0) {
+                self.audioPlayer.rate = self.tmpRate
+            }
         }
         self.status = .playing
 
@@ -427,15 +432,39 @@ class AudioPlayer: NSObject {
     public func setPlaybackRate(_ rate: Float, observed: Bool = false) {
         let playbackSpeedChanged = rate > 0.0 && rate != self.tmpRate && !(observed && rate == 1)
         
-        if self.audioPlayer.rate != rate {
-            logger.log("setPlaybakRate rate changed from \(self.audioPlayer.rate) to \(rate)")
-            DispatchQueue.runOnMainQueue {
-                self.audioPlayer.rate = rate
+        if #available(iOS 16.0, *) {
+            logger.log("Set Playback Rate Called. New rate: \(rate), Previous rate: \(self.rate), Tmp Rate: \(self.tmpRate), Player Rate: \(self.audioPlayer.rate), Player Default Rate: \(self.audioPlayer.defaultRate), Observed: \(observed), PlaybackSpeedChanged: \(playbackSpeedChanged)")
+            
+            if playbackSpeedChanged {
+                DispatchQueue.runOnMainQueue {
+                    self.audioPlayer.defaultRate = rate
+                }
+                
+                // Check to see if we also need to make a temporary rate change to player
+                if self.audioPlayer.rate > 0.0 {
+                    if self.audioPlayer.rate != rate {
+                        DispatchQueue.runOnMainQueue {
+                            self.audioPlayer.rate = rate
+                        }
+                    }
+                    self.rate = rate
+                    self.updateNowPlaying()
+                }
+            } else {
+                self.rate = rate
+                self.updateNowPlaying()
             }
+        } else {
+            if self.audioPlayer.rate != rate {
+                logger.log("setPlaybackRate rate changed from \(self.audioPlayer.rate) to \(rate)")
+                DispatchQueue.runOnMainQueue {
+                    self.audioPlayer.rate = rate
+                }
+            }
+            
+            self.rate = rate
+            self.updateNowPlaying()
         }
-        
-        self.rate = rate
-        self.updateNowPlaying()
         
         if playbackSpeedChanged {
             self.tmpRate = rate
